@@ -1,0 +1,7 @@
+discord
+requests
+json
+os
+asyncio
+discord.ext
+time
