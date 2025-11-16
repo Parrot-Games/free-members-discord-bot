@@ -1,5 +1,6 @@
-discord
-requests
+discord.py>=2.3.0
+requests>=2.31.0
+aiohttp>=3.8.0
 json
 os
 asyncio
