@@ -567,26 +567,6 @@ async def list_authenticated_users(ctx):
     except Exception as error:
         await ctx.send(f"❌ Error listing users: {str(error)}")
 
-@bot.command(name='clear_users')
-async def clear_authenticated_users(ctx):
-    """Clear all authenticated users (reset)"""
-    try:
-        if os.path.exists('auths.txt'):
-            # Count users before clearing
-            user_count = 0
-            with open('auths.txt', 'r') as auth_file:
-                for line in auth_file:
-                    if line.strip():
-                        user_count += 1
-            
-            os.remove('auths.txt')
-            await ctx.send(f"✅ Cleared **{user_count}** authenticated users. File reset.")
-        else:
-            await ctx.send("✅ No auth file found. Already clean.")
-            
-    except Exception as error:
-        await ctx.send(f"❌ Error clearing users: {str(error)}")
-
 @bot.command(name='invite')
 async def generate_invite(ctx):
     """Generate bot invite link for any server"""
@@ -661,7 +641,7 @@ async def show_help(ctx):
     
     embed.add_field(
         name="👥 USER MANAGEMENT", 
-        value="`!list_users` - List authenticated users\n`!clear_users` - Reset all users", 
+        value="`!list_users` - List authenticated users", 
         inline=False
     )
     
