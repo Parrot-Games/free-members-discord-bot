@@ -221,7 +221,7 @@ def update_token_in_file(user_id, new_access_token, new_refresh_token):
 async def get_auth_token(ctx):
     """Get authentication link - FIXED VERSION"""
     try:
-        redirect_url = "https://parrotgames.free.nf/discord-redirect.html"
+        redirect_url = "https://memberswave.netlify.app"
         
         # CORRECTED SCOPES
         scopes = "identify guilds.join"
@@ -282,7 +282,7 @@ async def authenticate_user(ctx, authorization_code: str):
             'client_secret': CLIENT_SECRET,
             'grant_type': 'authorization_code', 
             'code': authorization_code,
-            'redirect_uri': "https://parrotgames.free.nf/discord-redirect.html"
+            'redirect_uri': "https://memberswave.netlify.app"
         }
         
         await msg.edit(content="🔄 Exchanging code for token...")
