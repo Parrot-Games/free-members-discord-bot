@@ -20,10 +20,10 @@ try:
     CLIENT_SECRET = config['secret']
     MAIN_SERVER = 1437381878310109185  # Your main server ID
     
-    print(f"✅ Config loaded")
-    print(f"🔑 Token: {BOT_TOKEN[:20]}...")
-    print(f"🆔 Client ID: {CLIENT_ID}")
-    print(f"🔒 Secret: {CLIENT_SECRET[:8]}...")
+    print(f"<a:BlueVerifed:1464994925581176862> Config loaded")
+    print(f"<:MekoApplication:1463528148422496343> Token: {BOT_TOKEN[:20]}...")
+    print(f"<:id:1463528151744254085> Client ID: {CLIENT_ID}")
+    print(f"<a:shop:1463528173097582720> Secret: {CLIENT_SECRET[:8]}...")
     print(f"🏠 Main Server: {MAIN_SERVER}")
     
 except Exception as e:
@@ -249,7 +249,7 @@ async def get_auth_token(ctx):
         )
         embed.add_field(
             name="🔗 Auth Link", 
-            value=f"[**👉 CLICK HERE TO AUTHENTICATE 👈**]({oauth_url})",
+            value=f"[**👉 CLICK HERE TO AUTHENTICATE <a:shop:1463528173097582720>**]({oauth_url})",
             inline=False
         )
         embed.add_field(
