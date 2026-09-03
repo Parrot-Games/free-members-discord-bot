@@ -32,5 +32,5 @@ Open a Pull Request.
 Disclaimer
 free-members-discord-bot is intended solely for controlled member backup and restoration. Misuse for spamming or unauthorized member adding may violate Discord's Terms of Service.
 # Note
-Official Members Wave Discord Server https://discord.gg/memberswave or https://discord.gg/gyYwh5eFyE (If you want the latest and fastest bot with complete server setup then u can buy from the discord server!
+Official Members Wave Discord Server https://discord.gg/memberswave or https://discord.gg/WzmSUvy6Cq (If you want the latest and fastest bot with complete server setup then u can buy from the discord server!
 @toolbee1 my dc username (:
